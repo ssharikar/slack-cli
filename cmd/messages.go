@@ -45,13 +45,20 @@ var messagesReadCmd = &cobra.Command{
 			return fmt.Errorf("failed to get messages: %w", err)
 		}
 
-		// Build a user cache for display names
-		userCache := make(map[string]string)
+		// Resolve display names from the cached workspace directory (one fetch,
+		// usually served from cache) instead of a live users.info call per
+		// message author — that used to make reading a busy channel very slow.
+		userByID := make(map[string]slack.User)
+		if users, err := getAllUsers(client, wsName); err == nil {
+			for _, u := range users {
+				userByID[u.ID] = u
+			}
+		}
 
 		// Print messages in chronological order (oldest first)
 		for i := len(history.Messages) - 1; i >= 0; i-- {
 			msg := history.Messages[i]
-			username := resolveUsername(client, msg.User, userCache)
+			username := resolveUsername(client, msg.User, userByID)
 			ts := formatTimestamp(msg.Timestamp)
 			fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, username, msg.Text)
 		}
@@ -125,23 +132,28 @@ func resolveGroupDM(client *slack.Client, wsName string, recipients []string) (s
 	return openDM(client, ids...)
 }
 
-func resolveUsername(client *slack.Client, userID string, cache map[string]string) string {
+// resolveUsername returns a display name for userID, preferring the cached
+// workspace directory and falling back to a live users.info call only when
+// the directory fetch failed or the user predates the cache.
+func resolveUsername(client *slack.Client, userID string, userByID map[string]slack.User) string {
 	if userID == "" {
 		return "bot"
 	}
-	if name, ok := cache[userID]; ok {
-		return name
+	if u, ok := userByID[userID]; ok {
+		if u.RealName != "" {
+			return u.RealName
+		}
+		return u.Name
 	}
 	info, err := client.GetUserInfo(userID)
 	if err != nil {
-		cache[userID] = userID
 		return userID
 	}
 	name := info.RealName
 	if name == "" {
 		name = info.Name
 	}
-	cache[userID] = name
+	userByID[userID] = *info
 	return name
 }
 
