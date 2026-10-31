@@ -371,9 +371,14 @@ func getAllUsers(client *slack.Client, wsName string) ([]slack.User, error) {
 }
 
 // fetchUsersLive fetches the user directory from Slack (bypassing the cache) and
-// refreshes the cache.
+// refreshes the cache. 1000 (Slack's documented max) rather than 200 per page
+// is a deliberate choice, not the default — measured live against a ~12.7k
+// user workspace, requesting 200/page took 6m18s (64 requests), 1000/page
+// took 1m9s (13 requests) for the identical result. The bottleneck here is
+// per-request overhead (rate-limit backoff, network latency), not data
+// volume, so fewer/larger pages wins decisively.
 func fetchUsersLive(client *slack.Client, wsName string) ([]slack.User, error) {
-	users, err := client.GetUsers(slack.GetUsersOptionLimit(200))
+	users, err := client.GetUsers(slack.GetUsersOptionLimit(1000))
 	if err != nil {
 		return nil, err
 	}
