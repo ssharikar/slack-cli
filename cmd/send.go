@@ -13,6 +13,7 @@ import (
 var sendFiles []string
 var sendThreadTS string
 var sendBroadcast bool
+var sendName string
 
 var sendCmd = &cobra.Command{
 	Use:   "send [#channel | @user | @a,@b,@c] [message]",
@@ -31,18 +32,33 @@ var sendCmd = &cobra.Command{
 		"`messages read` or `messages thread` (works on a thread anyone\n" +
 		"started, not just your own). Add --broadcast to also post the\n" +
 		"reply to the channel:\n\n" +
-		"  slack-cli send #general \"fixed it\" -t 1700000000.000100",
-	Args: cobra.RangeArgs(1, 2),
+		"  slack-cli send #general \"fixed it\" -t 1700000000.000100\n\n" +
+		"Don't know their @handle? Use --name with their full name (as Jira\n" +
+		"shows it, e.g. \"Last, First\") to resolve them via Jira's EUA ID\n" +
+		"instead — requires `slack-cli jira login` first:\n\n" +
+		"  slack-cli send --name \"Sharikar, Srikanth\" \"got a minute?\"",
+	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsName, ws, err := loadWorkspace()
 		if err != nil {
 			return err
 		}
 		client := api.NewClient(ws)
-		target := args[0]
-		message := ""
-		if len(args) > 1 {
-			message = args[1]
+
+		var target, message string
+		if sendName != "" {
+			if len(args) != 1 {
+				return fmt.Errorf("with --name, provide exactly one message argument")
+			}
+			message = args[0]
+		} else {
+			if len(args) == 0 {
+				return fmt.Errorf("provide a recipient (#channel, @user, or --name)")
+			}
+			target = args[0]
+			if len(args) > 1 {
+				message = args[1]
+			}
 		}
 		if message == "" && len(sendFiles) == 0 {
 			return fmt.Errorf("provide a message and/or at least one --file")
@@ -51,9 +67,22 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("--broadcast only applies to a threaded reply (use -t/--thread)")
 		}
 
-		channelID, err := resolveTarget(client, wsName, target)
-		if err != nil {
-			return err
+		var channelID string
+		if sendName != "" {
+			id, err := resolveUserID(client, wsName, sendName)
+			if err != nil {
+				return fmt.Errorf("could not resolve %q (checked Slack directory and Jira): %w", sendName, err)
+			}
+			channelID, err = openDM(client, id)
+			if err != nil {
+				return err
+			}
+			target = sendName
+		} else {
+			channelID, err = resolveTarget(client, wsName, target)
+			if err != nil {
+				return err
+			}
 		}
 
 		if len(sendFiles) > 0 {
@@ -116,5 +145,6 @@ func init() {
 	sendCmd.Flags().StringArrayVarP(&sendFiles, "file", "f", nil, "Attach a file (repeatable)")
 	sendCmd.Flags().StringVarP(&sendThreadTS, "thread", "t", "", "Reply within the thread rooted at this message timestamp")
 	sendCmd.Flags().BoolVar(&sendBroadcast, "broadcast", false, "Also post the threaded reply to the channel (requires -t)")
+	sendCmd.Flags().StringVar(&sendName, "name", "", "Resolve the recipient by full name via Jira instead of a #channel/@user positional arg")
 	rootCmd.AddCommand(sendCmd)
 }

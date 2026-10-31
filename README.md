@@ -55,6 +55,8 @@ slack-cli auth test
 # List channels
 slack-cli channels list
 slack-cli channels list -a          # include archived
+slack-cli channels list --mine      # only channels you created
+slack-cli channels favorites        # your starred channels
 
 # Read messages
 slack-cli messages read #general
@@ -62,11 +64,22 @@ slack-cli messages read #general -n 50
 slack-cli messages read @username
 slack-cli messages read @ana,@ben,@carol           # read a group DM
 
+# Read a thread (the "(N replies — ts ...)" hint on a `messages read` line
+# carries the timestamp to use here)
+slack-cli messages thread #general 1700000000.000100
+
 # Send messages
 slack-cli send #general "Hello from the CLI"
 slack-cli send @username "Hey there"
 slack-cli send someone@company.com "Hey there"     # resolves by email (fastest)
 slack-cli send @ana,@ben,carol@co.com "lunch?"     # group DM (up to 8 people)
+
+# Reply inside a thread (anyone's, not just your own); --broadcast also
+# posts the reply to the channel
+slack-cli send #general "fixed it" -t 1700000000.000100 --broadcast
+
+# Don't know their @handle? Resolve by full name via Jira (see below)
+slack-cli send --name "Sharikar, Srikanth" "got a minute?"
 
 # Attach files (-f is repeatable; the message is an optional caption)
 slack-cli send #general "see attached" -f report.pdf
@@ -77,6 +90,26 @@ slack-cli users list
 slack-cli users info @username
 slack-cli users search ryan       # partial match on name, display name, or email
 ```
+
+## Jira / EUA ID Lookup
+
+If your org identifies people by an EUA ID that's also their Slack username
+(common at CMS), connect Jira once and `send`/`@name` lookups can resolve a
+person's name through it automatically when the Slack directory doesn't have
+an exact match:
+
+```bash
+slack-cli jira login                        # paste your Jira base URL + a Personal Access Token
+slack-cli jira lookup "Sharikar, Srikanth"   # sanity-check the EUA ID it resolves to
+slack-cli send --name "Sharikar, Srikanth" "got a minute?"
+```
+
+Under the hood, this calls Jira's user picker (the same endpoint behind
+Jira's own @-mention autocomplete — no admin permissions needed) to turn the
+name into an EUA ID, then matches that EUA ID against the cached Slack
+directory as a username. Currently targets Jira Server/Data Center (Personal
+Access Token auth); Jira Cloud isn't supported since it doesn't expose
+usernames via its API.
 
 ## Performance & Caching
 
@@ -120,8 +153,9 @@ slack-cli -w mycompany send #general "Hello"
 - **No bot or Slack app required** — uses your browser session
 - **Auto token extraction** — paste one cookie, token is fetched automatically
 - **Multi-workspace** — switch between multiple Slack workspaces
-- **Read & send messages** — channels and DMs
-- **List channels & users** — browse your workspace
+- **Read & send messages** — channels, DMs, and thread replies
+- **List channels & users** — browse your workspace, including starred/favorite channels
+- **Jira-backed name lookup** — resolve a person's name to their EUA ID (Slack username) via Jira when the Slack directory doesn't have an exact match
 - **Pure Go** — single binary, no external dependencies
 
 ## Security

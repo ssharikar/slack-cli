@@ -15,10 +15,19 @@ type Workspace struct {
 	UserAgent string `json:"user_agent,omitempty"`
 }
 
+// JiraConfig holds credentials for the optional Jira integration, used to
+// resolve a person's name to their EUA ID when the Slack directory doesn't
+// have an exact match for it.
+type JiraConfig struct {
+	BaseURL string `json:"base_url"`
+	Token   string `json:"token"`
+}
+
 // Config holds all workspace profiles and the default selection.
 type Config struct {
 	Default    string                `json:"default"`
 	Workspaces map[string]*Workspace `json:"workspaces"`
+	Jira       *JiraConfig           `json:"jira,omitempty"`
 }
 
 func configDir() string {
@@ -149,6 +158,30 @@ func SetDefault(name string) error {
 	}
 
 	cfg.Default = name
+	return saveFull(cfg)
+}
+
+// LoadJira returns the configured Jira credentials, or an error if the
+// integration hasn't been set up yet.
+func LoadJira() (*JiraConfig, error) {
+	cfg, err := LoadFull()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Jira == nil {
+		return nil, fmt.Errorf("no Jira connection configured — run 'slack-cli jira login'")
+	}
+	return cfg.Jira, nil
+}
+
+// SaveJira saves Jira credentials, creating the config file if it doesn't
+// exist yet (Jira can be set up before or after any Slack workspace).
+func SaveJira(jira *JiraConfig) error {
+	cfg, err := LoadFull()
+	if err != nil {
+		cfg = &Config{Workspaces: make(map[string]*Workspace)}
+	}
+	cfg.Jira = jira
 	return saveFull(cfg)
 }
 

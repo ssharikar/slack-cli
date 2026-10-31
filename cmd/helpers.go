@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/max7866/slack-cli/internal/config"
+	"github.com/max7866/slack-cli/internal/jira"
 	"github.com/slack-go/slack"
 )
 
@@ -274,7 +275,40 @@ func resolveUserID(client *slack.Client, wsName, token string) (string, error) {
 			return id, nil
 		}
 	}
+
+	// Last resort: resolve the name to an EUA ID via Jira (if connected) and
+	// match that against the Slack directory. EUA ID is this org's Slack
+	// username, and it catches names that don't match Slack's display name
+	// verbatim — e.g. Jira's "Last, First (Org)" format vs whatever Slack shows.
+	if euaID, ok := lookupEUAID(name); ok {
+		if id, ok := findUser(users, euaID); ok {
+			return id, nil
+		}
+	}
+
 	return "", fmt.Errorf("user %q not found", token)
+}
+
+// lookupEUAID resolves a display name to an EUA ID via Jira's user picker.
+// It returns false (not an error) whenever Jira isn't configured or the
+// lookup comes back empty — this is a best-effort fallback, not a hard
+// dependency, so a user without Jira set up sees the same "not found" as
+// before rather than a confusing Jira error.
+func lookupEUAID(name string) (string, bool) {
+	jcfg, err := config.LoadJira()
+	if err != nil {
+		return "", false
+	}
+	client := jira.NewClient(jcfg.BaseURL, jcfg.Token)
+	matches, err := client.SearchUser(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: Jira lookup for %q failed: %v\n", name, err)
+		return "", false
+	}
+	if len(matches) == 0 {
+		return "", false
+	}
+	return matches[0].Name, true
 }
 
 // isEmail reports whether token looks like an email address (and not an
