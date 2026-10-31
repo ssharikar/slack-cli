@@ -48,19 +48,53 @@ var messagesReadCmd = &cobra.Command{
 		// Resolve display names from the cached workspace directory (one fetch,
 		// usually served from cache) instead of a live users.info call per
 		// message author — that used to make reading a busy channel very slow.
-		userByID := make(map[string]slack.User)
-		if users, err := getAllUsers(client, wsName); err == nil {
-			for _, u := range users {
-				userByID[u.ID] = u
-			}
-		}
+		userByID := cachedUserByID(client, wsName)
 
 		// Print messages in chronological order (oldest first)
 		for i := len(history.Messages) - 1; i >= 0; i-- {
-			msg := history.Messages[i]
-			username := resolveUsername(client, msg.User, userByID)
-			ts := formatTimestamp(msg.Timestamp)
-			fmt.Fprintf(os.Stdout, "[%s] %s: %s\n", ts, username, msg.Text)
+			printMessage(client, history.Messages[i], userByID, "")
+		}
+		return nil
+	},
+}
+
+var messagesThreadCmd = &cobra.Command{
+	Use:   "thread [#channel | @user | @a,@b,@c] [thread-ts]",
+	Short: "Read a thread's root message and all its replies",
+	Long: "Read a thread's root message and all its replies.\n\n" +
+		"Get the thread-ts from `messages read` output: a message with replies\n" +
+		"shows a \"(N replies — ts ...)\" hint carrying the timestamp to pass here:\n\n" +
+		"  slack-cli messages thread #general 1700000000.000100",
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		wsName, ws, err := loadWorkspace()
+		if err != nil {
+			return err
+		}
+		client := api.NewClient(ws)
+		target := args[0]
+		threadTS := args[1]
+
+		channelID, err := resolveTarget(client, wsName, target)
+		if err != nil {
+			return err
+		}
+
+		replies, err := fetchThreadReplies(client, channelID, threadTS)
+		if err != nil {
+			return fmt.Errorf("failed to get thread replies: %w", err)
+		}
+
+		// Same cached-directory lookup as `messages read` — a thread with many
+		// distinct participants shouldn't cost a live users.info call each.
+		userByID := cachedUserByID(client, wsName)
+
+		for _, msg := range replies {
+			prefix := "  ↳ " // reply
+			if msg.Timestamp == threadTS {
+				prefix = "[root] "
+			}
+			printMessage(client, msg, userByID, prefix)
 		}
 		return nil
 	},
@@ -157,6 +191,19 @@ func resolveUsername(client *slack.Client, userID string, userByID map[string]sl
 	return name
 }
 
+// printMessage writes one formatted message line, resolving the author from
+// the cached directory and — when the message has replies — appending a hint
+// with its raw timestamp, since that's what `messages thread` needs to open it.
+func printMessage(client *slack.Client, msg slack.Message, userByID map[string]slack.User, prefix string) {
+	username := resolveUsername(client, msg.User, userByID)
+	ts := formatTimestamp(msg.Timestamp)
+	line := fmt.Sprintf("%s[%s] %s: %s", prefix, ts, username, msg.Text)
+	if msg.ReplyCount > 0 {
+		line += fmt.Sprintf("  (%d replies — ts %s)", msg.ReplyCount, msg.Timestamp)
+	}
+	fmt.Fprintln(os.Stdout, line)
+}
+
 func formatTimestamp(ts string) string {
 	parts := strings.Split(ts, ".")
 	if len(parts) == 0 {
@@ -173,5 +220,6 @@ func formatTimestamp(ts string) string {
 func init() {
 	messagesReadCmd.Flags().IntVarP(&messageCount, "count", "n", 20, "Number of messages to show")
 	messagesCmd.AddCommand(messagesReadCmd)
+	messagesCmd.AddCommand(messagesThreadCmd)
 	rootCmd.AddCommand(messagesCmd)
 }

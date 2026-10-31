@@ -147,6 +147,50 @@ func fetchConversations(client *slack.Client, types []string, excludeArchived bo
 	return all, nil
 }
 
+// cachedUserByID returns the workspace's user directory keyed by ID, served
+// from cache when fresh. Used to resolve message authors without a live
+// users.info call per message (see resolveUsername).
+func cachedUserByID(client *slack.Client, wsName string) map[string]slack.User {
+	userByID := make(map[string]slack.User)
+	if users, err := getAllUsers(client, wsName); err == nil {
+		for _, u := range users {
+			userByID[u.ID] = u
+		}
+	}
+	return userByID
+}
+
+// fetchThreadReplies pages through conversations.replies for a thread,
+// following the cursor and backing off on rate limits, so a long thread is
+// read in full rather than truncated to the first page.
+func fetchThreadReplies(client *slack.Client, channelID, threadTS string) ([]slack.Message, error) {
+	var all []slack.Message
+	cursor := ""
+	for {
+		params := &slack.GetConversationRepliesParameters{
+			ChannelID: channelID,
+			Timestamp: threadTS,
+			Limit:     200,
+			Cursor:    cursor,
+		}
+		msgs, hasMore, next, err := client.GetConversationReplies(params)
+		if err != nil {
+			var rl *slack.RateLimitedError
+			if errors.As(err, &rl) {
+				time.Sleep(rl.RetryAfter)
+				continue
+			}
+			return nil, err
+		}
+		all = append(all, msgs...)
+		if !hasMore || next == "" {
+			break
+		}
+		cursor = next
+	}
+	return all, nil
+}
+
 // resolveChannelName resolves a channel reference (with or without a leading
 // '#') to a channel ID using the cached, fully-paginated conversation list.
 func resolveChannelName(client *slack.Client, wsName, name string) (string, error) {
