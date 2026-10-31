@@ -95,13 +95,24 @@ func saveCache(key string, v any) {
 	_ = os.WriteFile(path, data, 0600)
 }
 
+// channelDirCache and userDirCache memoize the decoded directory in memory
+// for the lifetime of one CLI invocation. Without this, resolving several
+// recipients (e.g. a group DM) re-reads and re-JSON-decodes the on-disk
+// cache file — which holds every user in the workspace — once per recipient.
+var channelDirCache = map[string][]slack.Channel{}
+var userDirCache = map[string][]slack.User{}
+
 // getAllConversations returns every active conversation of the given types,
 // following Slack's pagination cursor. Results are cached per workspace so that
 // resolving a channel name doesn't re-scan the whole workspace on every command.
 func getAllConversations(client *slack.Client, wsName string, types []string) ([]slack.Channel, error) {
 	key := wsName + "-channels"
+	if cached, ok := channelDirCache[key]; ok {
+		return cached, nil
+	}
 	var cached []slack.Channel
 	if loadCache(key, &cached) {
+		channelDirCache[key] = cached
 		return cached, nil
 	}
 	all, err := fetchConversations(client, types, true)
@@ -109,6 +120,7 @@ func getAllConversations(client *slack.Client, wsName string, types []string) ([
 		return nil, err
 	}
 	saveCache(key, all)
+	channelDirCache[key] = all
 	return all, nil
 }
 
@@ -213,6 +225,7 @@ func resolveChannelName(client *slack.Client, wsName, name string) (string, erro
 			return "", fmt.Errorf("failed to list channels: %w", err)
 		}
 		saveCache(wsName+"-channels", channels)
+		channelDirCache[wsName+"-channels"] = channels
 		if id, ok := findChannel(channels, name); ok {
 			return id, nil
 		}
@@ -363,8 +376,13 @@ func isChannelID(s string) bool {
 // cache when fresh. GetUsers already follows pagination internally; the cache
 // avoids repeating that (rate-limited) scan on every send.
 func getAllUsers(client *slack.Client, wsName string) ([]slack.User, error) {
+	key := wsName + "-users"
+	if cached, ok := userDirCache[key]; ok {
+		return cached, nil
+	}
 	var cached []slack.User
-	if loadCache(wsName+"-users", &cached) {
+	if loadCache(key, &cached) {
+		userDirCache[key] = cached
 		return cached, nil
 	}
 	return fetchUsersLive(client, wsName)
@@ -383,5 +401,6 @@ func fetchUsersLive(client *slack.Client, wsName string) ([]slack.User, error) {
 		return nil, err
 	}
 	saveCache(wsName+"-users", users)
+	userDirCache[wsName+"-users"] = users
 	return users, nil
 }
