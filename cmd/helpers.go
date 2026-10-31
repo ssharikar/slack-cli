@@ -228,9 +228,12 @@ func findChannel(channels []slack.Channel, name string) (string, bool) {
 	return "", false
 }
 
+// findUser matches case-insensitively — Slack handles are case-insensitive in
+// practice, and failing an exact-case match just sent people to `users search`
+// to find the right casing, which is most of what made "finding a user" slow.
 func findUser(users []slack.User, name string) (string, bool) {
 	for _, u := range users {
-		if u.Name == name || u.RealName == name || u.Profile.DisplayName == name {
+		if strings.EqualFold(u.Name, name) || strings.EqualFold(u.RealName, name) || strings.EqualFold(u.Profile.DisplayName, name) {
 			return u.ID, true
 		}
 	}
