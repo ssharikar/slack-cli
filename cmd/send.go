@@ -32,9 +32,12 @@ var sendCmd = &cobra.Command{
 		"caption; it is optional when at least one file is attached:\n\n" +
 		"  slack-cli send #general \"see attached\" -f report.pdf\n" +
 		"  slack-cli send @ana -f a.png -f b.png\n\n" +
-		"Reply inside a thread with -t/--thread, using a timestamp from\n" +
-		"`messages read` or `messages thread` (works on a thread anyone\n" +
-		"started, not just your own). Add --broadcast to also post the\n" +
+		"Reply inside a thread with -t/--thread, using a timestamp shown in\n" +
+		"`messages read`/`messages thread` output (works on a thread anyone\n" +
+		"started, not just your own). The same flag also starts a brand-new\n" +
+		"thread on a message that has no replies yet â in Slack there's no\n" +
+		"separate \"start a thread\" action, the first reply to a message's\n" +
+		"ts is what creates its thread. Add --broadcast to also post the\n" +
 		"reply to the channel:\n\n" +
 		"  slack-cli send #general \"fixed it\" -t 1700000000.000100\n\n" +
 		"Don't know their @handle? Use --name with their full name (as Jira\n" +

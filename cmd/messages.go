@@ -192,14 +192,18 @@ func resolveUsername(client *slack.Client, userID string, userByID map[string]sl
 }
 
 // printMessage writes one formatted message line, resolving the author from
-// the cached directory and — when the message has replies — appending a hint
-// with its raw timestamp, since that's what `messages thread` needs to open it.
+// the cached directory and always appending the raw timestamp — that's what
+// `send -t`/`messages thread` need, whether to reply within a thread that
+// already exists (shown as "N replies") or to start a brand-new thread on a
+// message that has none yet (the first reply to any ts starts one).
 func printMessage(client *slack.Client, msg slack.Message, userByID map[string]slack.User, prefix string) {
 	username := resolveUsername(client, msg.User, userByID)
 	ts := formatTimestamp(msg.Timestamp)
 	line := fmt.Sprintf("%s[%s] %s: %s", prefix, ts, username, msg.Text)
 	if msg.ReplyCount > 0 {
 		line += fmt.Sprintf("  (%d replies — ts %s)", msg.ReplyCount, msg.Timestamp)
+	} else {
+		line += fmt.Sprintf("  (ts %s)", msg.Timestamp)
 	}
 	fmt.Fprintln(os.Stdout, line)
 }
