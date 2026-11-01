@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/max7866/slack-cli/internal/api"
@@ -12,6 +13,8 @@ import (
 
 var includeArchived bool
 var mineOnly bool
+var createPrivate bool
+var createInvite []string
 
 var channelsCmd = &cobra.Command{
 	Use:   "channels",
@@ -107,6 +110,75 @@ var channelsFavoritesCmd = &cobra.Command{
 	},
 }
 
+var channelsCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a new channel",
+	Long: "Create a new channel, optionally private, optionally inviting people\n" +
+		"right away (each --invite value may be a single recipient or a\n" +
+		"comma-separated list; the flag is also repeatable):\n\n" +
+		"  slack-cli channels create project-x\n" +
+		"  slack-cli channels create project-x --private\n" +
+		"  slack-cli channels create project-x --private --invite @ana,@ben,carol@co.com",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		wsName, ws, err := loadWorkspace()
+		if err != nil {
+			return err
+		}
+		client := api.NewClient(ws)
+		name := strings.TrimPrefix(args[0], "#")
+
+		ch, err := client.CreateConversation(slack.CreateConversationParams{
+			ChannelName: name,
+			IsPrivate:   createPrivate,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create channel: %w", err)
+		}
+
+		kind := "public"
+		if createPrivate {
+			kind = "private"
+		}
+		fmt.Printf("Created %s channel #%s (%s)\n", kind, ch.Name, ch.ID)
+
+		// The channel list cache now predates this channel — drop it so the
+		// next lookup fetches live instead of waiting out the long TTL.
+		invalidateChannelCache(wsName)
+
+		if len(createInvite) == 0 {
+			return nil
+		}
+
+		var recipients []string
+		for _, token := range createInvite {
+			recipients = append(recipients, splitRecipients(token)...)
+		}
+
+		var ids []string
+		var unresolved []string
+		for _, r := range recipients {
+			id, err := resolveUserID(client, wsName, r)
+			if err != nil {
+				unresolved = append(unresolved, r)
+				continue
+			}
+			ids = append(ids, id)
+		}
+
+		if len(ids) > 0 {
+			if _, err := client.InviteUsersToConversation(ch.ID, ids...); err != nil {
+				return fmt.Errorf("channel created, but failed to invite people: %w", err)
+			}
+			fmt.Printf("Invited %d of %d requested\n", len(ids), len(recipients))
+		}
+		if len(unresolved) > 0 {
+			fmt.Printf("Could not resolve (not invited): %s\n", strings.Join(unresolved, ", "))
+		}
+		return nil
+	},
+}
+
 // filterByCreator returns the subset of channels created by the given user ID.
 func filterByCreator(channels []slack.Channel, userID string) []slack.Channel {
 	var mine []slack.Channel
@@ -138,7 +210,10 @@ func printChannels(channels []slack.Channel) {
 func init() {
 	channelsListCmd.Flags().BoolVarP(&includeArchived, "archived", "a", false, "Include archived channels")
 	channelsListCmd.Flags().BoolVar(&mineOnly, "mine", false, "Only show channels you created")
+	channelsCreateCmd.Flags().BoolVarP(&createPrivate, "private", "p", false, "Create a private channel instead of public")
+	channelsCreateCmd.Flags().StringArrayVarP(&createInvite, "invite", "i", nil, "Invite a person (or comma-separated list); repeatable")
 	channelsCmd.AddCommand(channelsListCmd)
 	channelsCmd.AddCommand(channelsFavoritesCmd)
+	channelsCmd.AddCommand(channelsCreateCmd)
 	rootCmd.AddCommand(channelsCmd)
 }

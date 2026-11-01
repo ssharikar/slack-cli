@@ -15,9 +15,17 @@ import (
 )
 
 // dirCacheTTL is how long a cached user/channel directory is considered fresh.
-// Resolving a recipient previously re-fetched the entire (paginated, rate-limited)
-// directory on every send; caching it makes repeated sends effectively instant.
-const dirCacheTTL = 10 * time.Minute
+// A 10-minute TTL defeats its own purpose on a large org: measured live on a
+// ~12.7k-user workspace, a cold refetch takes about a minute even at the
+// optimized page size, and real usage rarely sends two messages within 10
+// minutes of each other — so nearly every send was silently eating that
+// full re-fetch first. An org directory doesn't change minute to minute, and
+// a cache miss on a genuinely new/renamed person still self-heals (see the
+// one-time live refetch in resolveUserID/resolveChannelName), so a much
+// longer TTL costs little in staleness and removes the "every send is slow"
+// problem for the entire rest of the day. --refresh/`cache clear` remain the
+// escape hatches for "I need this to be live right now."
+const dirCacheTTL = 12 * time.Hour
 
 // refreshFlag, when set via --refresh, forces a live re-fetch and ignores any
 // cached directory. Declared in root.go.
@@ -101,6 +109,16 @@ func saveCache(key string, v any) {
 // cache file — which holds every user in the workspace — once per recipient.
 var channelDirCache = map[string][]slack.Channel{}
 var userDirCache = map[string][]slack.User{}
+
+// invalidateChannelCache drops the in-memory and on-disk channel cache for a
+// workspace. Used after creating a channel so it's visible to the next
+// lookup immediately rather than waiting out dirCacheTTL.
+func invalidateChannelCache(wsName string) {
+	delete(channelDirCache, wsName+"-channels")
+	if path, err := cacheFile(wsName + "-channels"); err == nil {
+		_ = os.Remove(path)
+	}
+}
 
 // getAllConversations returns every active conversation of the given types,
 // following Slack's pagination cursor. Results are cached per workspace so that
