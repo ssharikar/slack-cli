@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/max7866/slack-cli/internal/api"
 	"github.com/slack-go/slack"
@@ -14,6 +16,8 @@ var sendFiles []string
 var sendThreadTS string
 var sendBroadcast bool
 var sendName string
+var sendDryRun bool
+var sendConfirm bool
 
 var sendCmd = &cobra.Command{
 	Use:   "send [#channel | @user | @a,@b,@c] [message]",
@@ -36,7 +40,14 @@ var sendCmd = &cobra.Command{
 		"Don't know their @handle? Use --name with their full name (as Jira\n" +
 		"shows it, e.g. \"Last, First\") to resolve them via Jira's EUA ID\n" +
 		"instead — requires `slack-cli jira login` first:\n\n" +
-		"  slack-cli send --name \"Sharikar, Srikanth\" \"got a minute?\"",
+		"  slack-cli send --name \"Sharikar, Srikanth\" \"got a minute?\"\n\n" +
+		"Add --dry-run to resolve everything (Jira lookup, Slack matching,\n" +
+		"the channel/DM/thread target) and print what would be sent, without\n" +
+		"actually posting anything:\n\n" +
+		"  slack-cli send --name \"Sharikar, Srikanth\" \"test\" --dry-run\n\n" +
+		"Add --confirm to preview the same resolution and ask [y/N] before\n" +
+		"actually sending — unlike --dry-run, answering yes really sends it:\n\n" +
+		"  slack-cli send #general \"fixed it\" --confirm",
 	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsName, ws, err := loadWorkspace()
@@ -82,6 +93,23 @@ var sendCmd = &cobra.Command{
 			channelID, err = resolveTarget(client, wsName, target)
 			if err != nil {
 				return err
+			}
+		}
+
+		if sendDryRun {
+			fmt.Println("[dry run] nothing was sent")
+			printRecipientPreview(target, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
+			return nil
+		}
+
+		if sendConfirm {
+			fmt.Println("About to send:")
+			printRecipientPreview(target, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
+			fmt.Print("Send this? [y/N] ")
+			answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				fmt.Println("Aborted — nothing was sent.")
+				return nil
 			}
 		}
 
@@ -141,10 +169,33 @@ func uploadFiles(client *slack.Client, channelID, message, threadTS string, path
 	return nil
 }
 
+// printRecipientPreview reports exactly what `send` would do — recipient
+// resolution (including Jira/EUA ID matching and opening a DM, which already
+// happened by this point) and the message/files/thread target. Shared by
+// --dry-run (never sends) and --confirm (asks before sending for real).
+func printRecipientPreview(target, message, channelID, threadTS string, broadcast bool, files []string) {
+	fmt.Printf("  recipient:    %s (resolved channel/DM ID: %s)\n", target, channelID)
+	if message != "" {
+		fmt.Printf("  message:      %q\n", message)
+	}
+	for _, f := range files {
+		fmt.Printf("  file:         %s\n", f)
+	}
+	if threadTS != "" {
+		fmt.Printf("  as reply in:  thread %s", threadTS)
+		if broadcast {
+			fmt.Print(" (also broadcast to channel)")
+		}
+		fmt.Println()
+	}
+}
+
 func init() {
 	sendCmd.Flags().StringArrayVarP(&sendFiles, "file", "f", nil, "Attach a file (repeatable)")
 	sendCmd.Flags().StringVarP(&sendThreadTS, "thread", "t", "", "Reply within the thread rooted at this message timestamp")
 	sendCmd.Flags().BoolVar(&sendBroadcast, "broadcast", false, "Also post the threaded reply to the channel (requires -t)")
 	sendCmd.Flags().StringVar(&sendName, "name", "", "Resolve the recipient by full name via Jira instead of a #channel/@user positional arg")
+	sendCmd.Flags().BoolVar(&sendDryRun, "dry-run", false, "Resolve the recipient and print what would be sent, without actually sending")
+	sendCmd.Flags().BoolVar(&sendConfirm, "confirm", false, "Preview what would be sent and ask [y/N] before actually sending")
 	rootCmd.AddCommand(sendCmd)
 }
