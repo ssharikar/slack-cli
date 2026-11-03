@@ -35,7 +35,7 @@ var sendCmd = &cobra.Command{
 		"Reply inside a thread with -t/--thread, using a timestamp shown in\n" +
 		"`messages read`/`messages thread` output (works on a thread anyone\n" +
 		"started, not just your own). The same flag also starts a brand-new\n" +
-		"thread on a message that has no replies yet â in Slack there's no\n" +
+		"thread on a message that has no replies yet — in Slack there's no\n" +
 		"separate \"start a thread\" action, the first reply to a message's\n" +
 		"ts is what creates its thread. Add --broadcast to also post the\n" +
 		"reply to the channel:\n\n" +

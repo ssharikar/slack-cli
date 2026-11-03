@@ -13,7 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// requestTimeout bounds every call to the configured Jira host. Without it,
+// a typo'd or unreachable hostname — plausible for a public tool pointed at
+// an arbitrary org's Jira — would hang indefinitely rather than failing fast.
+const requestTimeout = 15 * time.Second
 
 // User is the subset of a Jira user record this CLI cares about. On Jira
 // Server/Data Center, Name is the person's username.
@@ -33,10 +39,14 @@ type Client struct {
 }
 
 func NewClient(baseURL, token string) *Client {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: baseURL,
 		token:   token,
-		http:    http.DefaultClient,
+		http:    &http.Client{Timeout: requestTimeout},
 	}
 }
 
