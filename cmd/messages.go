@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,110 @@ var messagesThreadCmd = &cobra.Command{
 	},
 }
 
+var downloadOutDir string
+
+var messagesDownloadCmd = &cobra.Command{
+	Use:   "download [#channel | @user | @a,@b,@c] [ts]",
+	Short: "Download the files/images attached to one message",
+	Long: "Download every file attached to a single message, identified by the\n" +
+		"ts shown in `messages read`/`messages thread` output (works for a\n" +
+		"top-level message or a thread reply):\n\n" +
+		"  slack-cli messages download #general 1700000000.000100\n" +
+		"  slack-cli messages download #general 1700000000.000100 -o ~/Downloads",
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		wsName, ws, err := loadWorkspace()
+		if err != nil {
+			return err
+		}
+		client := api.NewClient(ws)
+		target := args[0]
+		ts := args[1]
+
+		channelID, err := resolveTarget(client, wsName, target)
+		if err != nil {
+			return err
+		}
+
+		msg, err := findMessage(client, channelID, ts)
+		if err != nil {
+			return err
+		}
+		if len(msg.Files) == 0 {
+			fmt.Println("That message has no attached files.")
+			return nil
+		}
+
+		if downloadOutDir != "" {
+			if err := os.MkdirAll(downloadOutDir, 0755); err != nil {
+				return fmt.Errorf("failed to create output directory: %w", err)
+			}
+		}
+
+		for _, f := range msg.Files {
+			downloadURL := f.URLPrivateDownload
+			if downloadURL == "" {
+				downloadURL = f.URLPrivate
+			}
+			if downloadURL == "" {
+				fmt.Fprintf(os.Stderr, "skipping %q: no download URL (external/removed file?)\n", f.Name)
+				continue
+			}
+			name := filepath.Base(f.Name)
+			if name == "" || name == "." || name == "/" {
+				name = f.ID
+			}
+			path := filepath.Join(downloadOutDir, name)
+			out, err := os.Create(path)
+			if err != nil {
+				return fmt.Errorf("failed to create %q: %w", path, err)
+			}
+			err = client.GetFile(downloadURL, out)
+			out.Close()
+			if err != nil {
+				os.Remove(path)
+				return fmt.Errorf("failed to download %q: %w", f.Name, err)
+			}
+			fmt.Printf("Saved %s (%s)\n", path, formatBytes(f.Size))
+		}
+		return nil
+	},
+}
+
+// findMessage locates a single message by its exact ts, trying channel
+// history first (covers top-level messages, including thread roots) and
+// falling back to the thread it belongs to (covers thread replies, which
+// conversations.history never returns on their own). Slack's
+// conversations.replies accepts the ts of any message in a thread as the
+// anchor, not just the root, which is what makes the fallback work without
+// already knowing the thread's root ts.
+func findMessage(client *slack.Client, channelID, ts string) (*slack.Message, error) {
+	history, err := client.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Oldest:    ts,
+		Latest:    ts,
+		Inclusive: true,
+		Limit:     1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up message: %w", err)
+	}
+	if len(history.Messages) > 0 && history.Messages[0].Timestamp == ts {
+		return &history.Messages[0], nil
+	}
+
+	replies, err := fetchThreadReplies(client, channelID, ts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up message: %w", err)
+	}
+	for _, msg := range replies {
+		if msg.Timestamp == ts {
+			return &msg, nil
+		}
+	}
+	return nil, fmt.Errorf("no message found with ts %q in that conversation", ts)
+}
+
 func resolveTarget(client *slack.Client, wsName, target string) (string, error) {
 	// A comma-separated list of people opens a multi-person DM (group DM), e.g.
 	// "@ana,@ben,carol@co.com". Slack creates it with the same conversations.open
@@ -195,7 +300,10 @@ func resolveUsername(client *slack.Client, userID string, userByID map[string]sl
 // the cached directory and always appending the raw timestamp — that's what
 // `send -t`/`messages thread` need, whether to reply within a thread that
 // already exists (shown as "N replies") or to start a brand-new thread on a
-// message that has none yet (the first reply to any ts starts one).
+// message that has none yet (the first reply to any ts starts one). Any
+// attached files (images, PDFs, etc.) are listed too — their bytes aren't
+// shown, but the message no longer looks silently empty when a file is the
+// whole point; `messages download` fetches the actual content.
 func printMessage(client *slack.Client, msg slack.Message, userByID map[string]slack.User, prefix string) {
 	username := resolveUsername(client, msg.User, userByID)
 	ts := formatTimestamp(msg.Timestamp)
@@ -206,6 +314,22 @@ func printMessage(client *slack.Client, msg slack.Message, userByID map[string]s
 		line += fmt.Sprintf("  (ts %s)", msg.Timestamp)
 	}
 	fmt.Fprintln(os.Stdout, line)
+	for _, f := range msg.Files {
+		fmt.Fprintf(os.Stdout, "%s  📎 %s (%s, %s) — `messages download` with this ts to save it\n",
+			prefix, f.Name, f.Mimetype, formatBytes(f.Size))
+	}
+}
+
+// formatBytes renders a byte count as a short human-readable size.
+func formatBytes(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1fKB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", n)
+	}
 }
 
 func formatTimestamp(ts string) string {
@@ -223,7 +347,9 @@ func formatTimestamp(ts string) string {
 
 func init() {
 	messagesReadCmd.Flags().IntVarP(&messageCount, "count", "n", 20, "Number of messages to show")
+	messagesDownloadCmd.Flags().StringVarP(&downloadOutDir, "output", "o", "", "Directory to save files into (default: current directory)")
 	messagesCmd.AddCommand(messagesReadCmd)
 	messagesCmd.AddCommand(messagesThreadCmd)
+	messagesCmd.AddCommand(messagesDownloadCmd)
 	rootCmd.AddCommand(messagesCmd)
 }
