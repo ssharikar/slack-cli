@@ -41,13 +41,14 @@ var sendCmd = &cobra.Command{
 		"reply to the channel:\n\n" +
 		"  slack-cli send #general \"fixed it\" -t 1700000000.000100\n\n" +
 		"Don't know their @handle? Use --name with their full name (as Jira\n" +
-		"shows it, e.g. \"Last, First\") to resolve them via Jira's EUA ID\n" +
-		"instead — requires `slack-cli jira login` first:\n\n" +
-		"  slack-cli send --name \"Sharikar, Srikanth\" \"got a minute?\"\n\n" +
+		"shows it, e.g. \"Last, First\") to resolve them via their Jira username\n" +
+		"instead — requires `slack-cli jira config` first (a no-op unless\n" +
+		"your org's Jira usernames match your Slack usernames):\n\n" +
+		"  slack-cli send --name \"Doe, Jane\" \"got a minute?\"\n\n" +
 		"Add --dry-run to resolve everything (Jira lookup, Slack matching,\n" +
 		"the channel/DM/thread target) and print what would be sent, without\n" +
 		"actually posting anything:\n\n" +
-		"  slack-cli send --name \"Sharikar, Srikanth\" \"test\" --dry-run\n\n" +
+		"  slack-cli send --name \"Doe, Jane\" \"test\" --dry-run\n\n" +
 		"Add --confirm to preview the same resolution and ask [y/N] before\n" +
 		"actually sending — unlike --dry-run, answering yes really sends it:\n\n" +
 		"  slack-cli send #general \"fixed it\" --confirm",
@@ -173,7 +174,7 @@ func uploadFiles(client *slack.Client, channelID, message, threadTS string, path
 }
 
 // printRecipientPreview reports exactly what `send` would do — recipient
-// resolution (including Jira/EUA ID matching and opening a DM, which already
+// resolution (including the Jira username fallback and opening a DM, which already
 // happened by this point) and the message/files/thread target. Shared by
 // --dry-run (never sends) and --confirm (asks before sending for real).
 func printRecipientPreview(target, message, channelID, threadTS string, broadcast bool, files []string) {

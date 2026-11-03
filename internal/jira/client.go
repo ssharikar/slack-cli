@@ -1,8 +1,9 @@
 // Package jira is a minimal client for the parts of the Jira Server/Data
 // Center REST API this CLI needs: confirming a Personal Access Token works,
-// and resolving a person's display name to their username (this org's EUA
-// ID) via the same mention/assignee picker Jira's own UI uses for @-mention
-// autocomplete.
+// and resolving a person's display name to their Jira username via the same
+// mention/assignee picker Jira's own UI uses for @-mention autocomplete.
+// This is useful to slack-cli at orgs where a person's Jira username is also
+// their Slack username — see cmd/jira.go and resolveUserID's fallback.
 package jira
 
 import (
@@ -15,8 +16,7 @@ import (
 )
 
 // User is the subset of a Jira user record this CLI cares about. On Jira
-// Server/Data Center, Name is the person's username — at this org, that's
-// their EUA ID.
+// Server/Data Center, Name is the person's username.
 type User struct {
 	Key          string `json:"key"`
 	Name         string `json:"name"`
@@ -56,7 +56,7 @@ func errorFromResponse(resp *http.Response) error {
 }
 
 // WhoAmI validates the token and returns the authenticated user, used by
-// `jira login` to confirm the credentials work.
+// `jira config` to confirm the credentials work.
 func (c *Client) WhoAmI() (*User, error) {
 	resp, err := c.get("/rest/api/2/myself")
 	if err != nil {

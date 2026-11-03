@@ -307,12 +307,15 @@ func resolveUserID(client *slack.Client, wsName, token string) (string, error) {
 		}
 	}
 
-	// Last resort: resolve the name to an EUA ID via Jira (if connected) and
-	// match that against the Slack directory. EUA ID is this org's Slack
-	// username, and it catches names that don't match Slack's display name
-	// verbatim — e.g. Jira's "Last, First (Org)" format vs whatever Slack shows.
-	if euaID, ok := lookupEUAID(name); ok {
-		if id, ok := findUser(users, euaID); ok {
+	// Last resort: optional plugin-style fallback. Resolve the name to a Jira
+	// username via Jira's user picker (if connected — most installs won't
+	// have this configured, and that's fine) and match that against the
+	// Slack directory. This only helps at orgs where a person's Jira
+	// username is also their Slack username, but where it applies it catches
+	// names that don't match Slack's display name verbatim — e.g. a Jira
+	// "Last, First" format vs whatever Slack shows.
+	if jiraUsername, ok := lookupJiraUsername(name); ok {
+		if id, ok := findUser(users, jiraUsername); ok {
 			return id, nil
 		}
 	}
@@ -320,15 +323,15 @@ func resolveUserID(client *slack.Client, wsName, token string) (string, error) {
 	return "", fmt.Errorf("user %q not found", token)
 }
 
-// lookupEUAID resolves a display name to an EUA ID via Jira's user picker.
-// It returns false (not an error) whenever Jira isn't configured, the lookup
-// comes back empty, or it's ambiguous — this is a best-effort fallback, not
-// a hard dependency, so a user without Jira set up sees the same "not found"
-// as before rather than a confusing Jira error. Ambiguous matches (common
-// first names routinely return a dozen people at this org) are refused
-// rather than silently guessing the first one — that would risk messaging a
-// complete stranger.
-func lookupEUAID(name string) (string, bool) {
+// lookupJiraUsername resolves a display name to a Jira username via Jira's
+// user picker. It returns false (not an error) whenever Jira isn't
+// configured, the lookup comes back empty, or it's ambiguous — this is a
+// best-effort fallback, not a hard dependency, so a user without Jira set up
+// sees the same "not found" as before rather than a confusing Jira error.
+// Ambiguous matches (a common first name can easily return a dozen people at
+// a large org) are refused rather than silently guessing the first one —
+// that would risk messaging a complete stranger.
+func lookupJiraUsername(name string) (string, bool) {
 	jcfg, err := config.LoadJira()
 	if err != nil {
 		return "", false
@@ -343,7 +346,7 @@ func lookupEUAID(name string) (string, bool) {
 		return "", false
 	}
 	if len(matches) > 1 {
-		fmt.Fprintf(os.Stderr, "warning: Jira matched %d people for %q — not auto-resolving an ambiguous name; run `jira lookup %q` to see candidates and use the exact full name (or their EUA ID directly)\n",
+		fmt.Fprintf(os.Stderr, "warning: Jira matched %d people for %q — not auto-resolving an ambiguous name; run `jira lookup %q` to see candidates and use the exact full name (or their Jira/Slack username directly)\n",
 			len(matches), name, name)
 		return "", false
 	}

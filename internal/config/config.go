@@ -16,8 +16,8 @@ type Workspace struct {
 }
 
 // JiraConfig holds credentials for the optional Jira integration, used to
-// resolve a person's name to their EUA ID when the Slack directory doesn't
-// have an exact match for it.
+// resolve a person's name to their Jira username when the Slack directory
+// doesn't have an exact match for it.
 type JiraConfig struct {
 	BaseURL string `json:"base_url"`
 	Token   string `json:"token"`
@@ -169,7 +169,7 @@ func LoadJira() (*JiraConfig, error) {
 		return nil, err
 	}
 	if cfg.Jira == nil {
-		return nil, fmt.Errorf("no Jira connection configured — run 'slack-cli jira login'")
+		return nil, fmt.Errorf("no Jira connection configured — run 'slack-cli jira config'")
 	}
 	return cfg.Jira, nil
 }

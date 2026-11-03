@@ -14,21 +14,23 @@ import (
 
 var jiraCmd = &cobra.Command{
 	Use:   "jira",
-	Short: "Manage the Jira integration used to resolve names to EUA IDs",
+	Short: "Optional Jira integration for resolving names to Jira usernames",
 }
 
-var jiraLoginCmd = &cobra.Command{
-	Use:   "login",
-	Short: "Save Jira credentials",
-	Long: "Connects slack-cli to Jira so `send --name` and @name lookups can\n" +
-		"resolve a person's name to their EUA ID (used as their Slack username\n" +
-		"at this org) when the Slack directory doesn't have an exact match.\n\n" +
+var jiraConfigCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Save Jira connection details",
+	Long: "Connects slack-cli to a Jira Server/Data Center instance so\n" +
+		"`send --name` and @name lookups can resolve a person's name to their\n" +
+		"Jira username when the Slack directory doesn't have an exact match.\n" +
+		"This only helps at orgs where a person's Jira username is also their\n" +
+		"Slack username — it's a no-op fallback everywhere else.\n\n" +
 		"Needs a Personal Access Token: in Jira, click your avatar -> Personal\n" +
 		"Access Tokens -> Create token.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reader := bufio.NewReader(os.Stdin)
 
-		fmt.Print("Jira base URL (e.g. https://jiraent.cms.gov): ")
+		fmt.Print("Jira base URL (e.g. https://jira.example.com): ")
 		baseURL, _ := reader.ReadString('\n')
 		baseURL = strings.TrimSpace(baseURL)
 		baseURL = strings.TrimSuffix(baseURL, "/")
@@ -62,10 +64,10 @@ var jiraLoginCmd = &cobra.Command{
 
 var jiraLookupCmd = &cobra.Command{
 	Use:   "lookup <name>",
-	Short: "Look up a person's EUA ID (Jira username) by name",
-	Long: "Look up a person's EUA ID by name — useful to sanity-check the\n" +
-		"mapping before relying on `send --name` to find them automatically:\n\n" +
-		"  slack-cli jira lookup \"Sharikar, Srikanth\"",
+	Short: "Look up a person's Jira username by name",
+	Long: "Look up a person's Jira username by name — useful to sanity-check\n" +
+		"the mapping before relying on `send --name` to find them automatically:\n\n" +
+		"  slack-cli jira lookup \"Doe, Jane\"",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		jcfg, err := config.LoadJira()
@@ -82,7 +84,7 @@ var jiraLookupCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "EUA ID\tNAME")
+		fmt.Fprintln(w, "USERNAME\tNAME")
 		for _, u := range users {
 			fmt.Fprintf(w, "%s\t%s\n", u.Name, u.DisplayName)
 		}
@@ -92,7 +94,7 @@ var jiraLookupCmd = &cobra.Command{
 }
 
 func init() {
-	jiraCmd.AddCommand(jiraLoginCmd)
+	jiraCmd.AddCommand(jiraConfigCmd)
 	jiraCmd.AddCommand(jiraLookupCmd)
 	rootCmd.AddCommand(jiraCmd)
 }
