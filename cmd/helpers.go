@@ -16,10 +16,11 @@ import (
 
 // dirCacheTTL is how long a cached user/channel directory is considered fresh.
 // A 10-minute TTL defeats its own purpose on a large org: measured live on a
-// ~12.7k-user workspace, a cold refetch takes about a minute even at the
-// optimized page size, and real usage rarely sends two messages within 10
-// minutes of each other — so nearly every send was silently eating that
-// full re-fetch first. An org directory doesn't change minute to minute, and
+// workspace with tens of thousands of users, a cold refetch takes on the
+// order of a minute even at the optimized page size, and real usage rarely
+// sends two messages within 10 minutes of each other — so nearly every send
+// was silently eating that full re-fetch first. An org directory doesn't
+// change minute to minute, and
 // a cache miss on a genuinely new/renamed person still self-heals (see the
 // one-time live refetch in resolveUserID/resolveChannelName), so a much
 // longer TTL costs little in staleness and removes the "every send is slow"
@@ -411,11 +412,11 @@ func getAllUsers(client *slack.Client, wsName string) ([]slack.User, error) {
 
 // fetchUsersLive fetches the user directory from Slack (bypassing the cache) and
 // refreshes the cache. 1000 (Slack's documented max) rather than 200 per page
-// is a deliberate choice, not the default — measured live against a ~12.7k
-// user workspace, requesting 200/page took 6m18s (64 requests), 1000/page
-// took 1m9s (13 requests) for the identical result. The bottleneck here is
-// per-request overhead (rate-limit backoff, network latency), not data
-// volume, so fewer/larger pages wins decisively.
+// is a deliberate choice, not the default — measured live against a workspace
+// with tens of thousands of users, requesting 200/page took over 6 minutes
+// (dozens of requests), 1000/page took about 1 minute for the identical
+// result. The bottleneck here is per-request overhead (rate-limit backoff,
+// network latency), not data volume, so fewer/larger pages wins decisively.
 func fetchUsersLive(client *slack.Client, wsName string) ([]slack.User, error) {
 	users, err := client.GetUsers(slack.GetUsersOptionLimit(1000))
 	if err != nil {

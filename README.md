@@ -115,10 +115,13 @@ via its API.
 ## Performance & Caching
 
 Resolving a `@user` or `#channel` requires the workspace directory, which on
-large workspaces is thousands of paginated, rate-limited API calls. To keep
-repeated sends fast, the directory is cached per workspace under
-`~/.slack-cli/cache/` for 10 minutes — so the first send pays the cost once and
-subsequent sends are effectively instant.
+a large workspace is many paginated, rate-limited API calls — on an org with
+tens of thousands of users, a cold fetch can take on the order of a minute
+even at Slack's max page size. To keep repeated sends fast, the directory is
+cached per workspace under `~/.slack-cli/cache/` for 12 hours, so that cost
+is paid at most a couple of times a day rather than on every send after a
+short gap. A cache miss on a specific name still self-heals with one live
+refetch, so a brand new or renamed person is never permanently unreachable.
 
 ```bash
 slack-cli --refresh channels list   # bypass the cache and fetch live
@@ -155,7 +158,7 @@ slack-cli -w mycompany send #general "Hello"
 - **Auto token extraction** — paste one cookie, token is fetched automatically
 - **Multi-workspace** — switch between multiple Slack workspaces
 - **Read & send messages** — channels, DMs, and thread replies
-- **List channels & users** — browse your workspace, including starred/favorite channels
+- **List & create channels** — browse your workspace (including starred/favorite channels), or create a new one with `channels create`
 - **Jira-backed name lookup (optional)** — resolve a person's name to their Jira username via Jira when the Slack directory doesn't have an exact match, at orgs where that's also their Slack username
 - **Pure Go** — single binary, no external dependencies
 
@@ -163,7 +166,8 @@ slack-cli -w mycompany send #general "Hello"
 
 - Credentials stored in `~/.slack-cli/config.json` with `0600` permissions
 - Tokens are scoped to your user account — same access as your browser session
-- No data is sent anywhere except Slack's API servers
+- By default, no data is sent anywhere except Slack's API servers
+- If you opt into the Jira integration (`jira config`), the names you look up and your Jira Personal Access Token are sent to the Jira host you configure, the same way your Slack credentials are sent to Slack — nothing is sent to any third party beyond the two services you explicitly connect
 
 ## Note
 
