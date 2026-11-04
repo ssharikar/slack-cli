@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -271,6 +272,46 @@ func findUser(users []slack.User, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// mentionPattern matches an "@handle"-shaped token in message text: an '@'
+// at a word boundary (so it doesn't catch the '@' inside an email address
+// like name@domain.com, which is preceded by a word character) followed by
+// a Slack-handle-shaped word.
+var mentionPattern = regexp.MustCompile(`(^|[^\w@])@([A-Za-z][\w.\-]*)`)
+
+// resolveMentions rewrites recognized @handle tokens in message text into
+// real Slack mentions — <@USER_ID> for a person, or <!here>/<!channel>/
+// <!everyone> for the broadcast forms — so they actually tag/notify someone.
+// Plain "@name" text in a Slack message does NOT notify anyone; only this
+// syntax does, which is easy to miss since the plain text looks identical
+// once posted.
+//
+// A token that doesn't match a known user is left exactly as typed: most
+// @-looking substrings in free text are false positives (a time like "@
+// 3pm", a stray symbol), so silently leaving them alone is the safe
+// default. This only checks the already-cached Slack directory — no live
+// refetch, no Jira fallback — since an inline mention is expected to be an
+// exact handle, and a message with several @-looking tokens shouldn't
+// trigger several live lookups.
+func resolveMentions(client *slack.Client, wsName, text string) string {
+	users, _ := getAllUsers(client, wsName)
+	return mentionPattern.ReplaceAllStringFunc(text, func(match string) string {
+		sub := mentionPattern.FindStringSubmatch(match)
+		prefix, handle := sub[1], sub[2]
+		switch strings.ToLower(handle) {
+		case "here":
+			return prefix + "<!here>"
+		case "channel":
+			return prefix + "<!channel>"
+		case "everyone":
+			return prefix + "<!everyone>"
+		}
+		if id, ok := findUser(users, handle); ok {
+			return prefix + "<@" + id + ">"
+		}
+		return match
+	})
 }
 
 // resolveUserID resolves a single recipient token — an email, an "@handle", or a

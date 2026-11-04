@@ -51,7 +51,12 @@ var sendCmd = &cobra.Command{
 		"  slack-cli send --name \"Doe, Jane\" \"test\" --dry-run\n\n" +
 		"Add --confirm to preview the same resolution and ask [y/N] before\n" +
 		"actually sending — unlike --dry-run, answering yes really sends it:\n\n" +
-		"  slack-cli send #general \"fixed it\" --confirm",
+		"  slack-cli send #general \"fixed it\" --confirm\n\n" +
+		"@mentions inside the message text (not just the recipient) are\n" +
+		"resolved against the Slack directory and rewritten into real tags\n" +
+		"that actually notify someone \xe2\x80\x94 plain \"@name\" text in a message\n" +
+		"does not. @here/@channel/@everyone work too:\n\n" +
+		"  slack-cli send #general \"hey @ana can you take this\"",
 	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsName, ws, err := loadWorkspace()
@@ -80,6 +85,9 @@ var sendCmd = &cobra.Command{
 		}
 		if sendBroadcast && sendThreadTS == "" {
 			return fmt.Errorf("--broadcast only applies to a threaded reply (use -t/--thread)")
+		}
+		if message != "" {
+			message = resolveMentions(client, wsName, message)
 		}
 
 		var channelID string
