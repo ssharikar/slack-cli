@@ -68,6 +68,9 @@ slack-cli messages read @ana,@ben,@carol           # read a group DM
 # carries the timestamp to use here)
 slack-cli messages thread #general 1700000000.000100
 
+# Edit a message you sent (same ts the "(N replies — ts ...)" hint carries)
+slack-cli messages edit #general 1700000000.000100 "fixed typo"
+
 # Download a message's attached files/images (messages read/thread list any
 # attachments with the ts needed here, since the text alone doesn't show them)
 slack-cli messages download #general 1700000000.000100
@@ -162,7 +165,7 @@ slack-cli -w mycompany send #general "Hello"
 - **No bot or Slack app required** — uses your browser session
 - **Auto token extraction** — paste one cookie, token is fetched automatically
 - **Multi-workspace** — switch between multiple Slack workspaces
-- **Read & send messages** — channels, DMs, and thread replies, including downloading attached files/images
+- **Read, send & edit messages** — channels, DMs, and thread replies, including editing a message you sent and downloading attached files/images
 - **List & create channels** — browse your workspace (including starred/favorite channels), or create a new one with `channels create`
 - **Jira-backed name lookup (optional)** — resolve a person's name to their Jira username via Jira when the Slack directory doesn't have an exact match, at orgs where that's also their Slack username
 - **Pure Go** — single binary, no external dependencies

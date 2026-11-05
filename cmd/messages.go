@@ -101,6 +101,43 @@ var messagesThreadCmd = &cobra.Command{
 	},
 }
 
+var messagesEditCmd = &cobra.Command{
+	Use:   "edit [#channel | @user | @a,@b,@c] [ts] [new message]",
+	Short: "Edit a message you previously sent",
+	Long: "Edit the text of a message you previously sent, identified by the ts\n" +
+		"shown in `messages read`/`messages thread` output (works on a top-level\n" +
+		"message or a thread reply). Slack only lets you edit your own messages\n" +
+		"(or any message if you're a workspace admin) — editing someone else's\n" +
+		"will fail with a permission error from Slack itself.\n\n" +
+		"@mentions in the new text are resolved into real tags just like `send`:\n\n" +
+		"  slack-cli messages edit #general 1700000000.000100 \"fixed typo, @ana fyi\"",
+	Args: cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		wsName, ws, err := loadWorkspace()
+		if err != nil {
+			return err
+		}
+		client := api.NewClient(ws)
+		target := args[0]
+		ts := args[1]
+		newText := args[2]
+
+		channelID, err := resolveTarget(client, wsName, target)
+		if err != nil {
+			return err
+		}
+
+		newText = resolveMentions(client, wsName, newText)
+
+		_, _, _, err = client.UpdateMessage(channelID, ts, slack.MsgOptionText(newText, false))
+		if err != nil {
+			return fmt.Errorf("failed to edit message: %w", err)
+		}
+		fmt.Printf("Edited message %s in %s\n", ts, target)
+		return nil
+	},
+}
+
 var downloadOutDir string
 
 var messagesDownloadCmd = &cobra.Command{
@@ -350,6 +387,7 @@ func init() {
 	messagesDownloadCmd.Flags().StringVarP(&downloadOutDir, "output", "o", "", "Directory to save files into (default: current directory)")
 	messagesCmd.AddCommand(messagesReadCmd)
 	messagesCmd.AddCommand(messagesThreadCmd)
+	messagesCmd.AddCommand(messagesEditCmd)
 	messagesCmd.AddCommand(messagesDownloadCmd)
 	rootCmd.AddCommand(messagesCmd)
 }
