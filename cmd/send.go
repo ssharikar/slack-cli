@@ -86,6 +86,7 @@ var sendCmd = &cobra.Command{
 		if sendBroadcast && sendThreadTS == "" {
 			return fmt.Errorf("--broadcast only applies to a threaded reply (use -t/--thread)")
 		}
+		typed := message
 		if message != "" {
 			message = resolveMentions(client, wsName, message)
 		}
@@ -110,13 +111,13 @@ var sendCmd = &cobra.Command{
 
 		if sendDryRun {
 			fmt.Println("[dry run] nothing was sent")
-			printRecipientPreview(target, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
+			printRecipientPreview(target, typed, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
 			return nil
 		}
 
 		if sendConfirm {
 			fmt.Println("About to send:")
-			printRecipientPreview(target, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
+			printRecipientPreview(target, typed, message, channelID, sendThreadTS, sendBroadcast, sendFiles)
 			fmt.Print("Send this? [y/N] ")
 			answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
@@ -185,10 +186,13 @@ func uploadFiles(client *slack.Client, channelID, message, threadTS string, path
 // resolution (including the Jira username fallback and opening a DM, which already
 // happened by this point) and the message/files/thread target. Shared by
 // --dry-run (never sends) and --confirm (asks before sending for real).
-func printRecipientPreview(target, message, channelID, threadTS string, broadcast bool, files []string) {
+func printRecipientPreview(target, typed, message, channelID, threadTS string, broadcast bool, files []string) {
 	fmt.Printf("  recipient:    %s (resolved channel/DM ID: %s)\n", target, channelID)
-	if message != "" {
-		fmt.Printf("  message:      %q\n", message)
+	if typed != "" {
+		fmt.Printf("  message:      %q\n", typed)
+	}
+	if message != typed {
+		fmt.Printf("  with mentions: %q\n", message)
 	}
 	for _, f := range files {
 		fmt.Printf("  file:         %s\n", f)

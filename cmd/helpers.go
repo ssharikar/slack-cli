@@ -180,15 +180,19 @@ func fetchConversations(client *slack.Client, types []string, excludeArchived bo
 	return all, nil
 }
 
-// cachedUserByID returns the workspace's user directory keyed by ID, served
-// from cache when fresh. Used to resolve message authors without a live
-// users.info call per message (see resolveUsername).
-func cachedUserByID(client *slack.Client, wsName string) map[string]slack.User {
+// cachedUserByID returns the workspace's user directory keyed by ID, but only
+// if it is already cached. It never fetches the directory live: on a large
+// org that takes about a minute, far more than the few users.info calls
+// resolveUsername falls back to for the authors of a handful of messages.
+func cachedUserByID(wsName string) map[string]slack.User {
 	userByID := make(map[string]slack.User)
-	if users, err := getAllUsers(client, wsName); err == nil {
-		for _, u := range users {
-			userByID[u.ID] = u
-		}
+	key := wsName + "-users"
+	users, ok := userDirCache[key]
+	if !ok && !loadCache(key, &users) {
+		return userByID
+	}
+	for _, u := range users {
+		userByID[u.ID] = u
 	}
 	return userByID
 }
@@ -265,20 +269,34 @@ func findChannel(channels []slack.Channel, name string) (string, bool) {
 // findUser matches case-insensitively — Slack handles are case-insensitive in
 // practice, and failing an exact-case match just sent people to `users search`
 // to find the right casing, which is most of what made "finding a user" slow.
+//
+// Handles are unique, so a handle match always wins. Real and display names
+// are not: if more than one person shares the name, it's refused rather than
+// guessing, so a message never lands with the wrong person.
 func findUser(users []slack.User, name string) (string, bool) {
 	for _, u := range users {
-		if strings.EqualFold(u.Name, name) || strings.EqualFold(u.RealName, name) || strings.EqualFold(u.Profile.DisplayName, name) {
+		if strings.EqualFold(u.Name, name) {
 			return u.ID, true
 		}
 	}
-	return "", false
+	var match string
+	for _, u := range users {
+		if strings.EqualFold(u.RealName, name) || strings.EqualFold(u.Profile.DisplayName, name) {
+			if match != "" && match != u.ID {
+				return "", false
+			}
+			match = u.ID
+		}
+	}
+	return match, match != ""
 }
 
 // mentionPattern matches an "@handle"-shaped token in message text: an '@'
 // at a word boundary (so it doesn't catch the '@' inside an email address
 // like name@domain.com, which is preceded by a word character) followed by
-// a Slack-handle-shaped word.
-var mentionPattern = regexp.MustCompile(`(^|[^\w@])@([A-Za-z][\w.\-]*)`)
+// a Slack-handle-shaped word. The handle must end on a word character so
+// sentence punctuation ("thanks @ana.") isn't swallowed into it.
+var mentionPattern = regexp.MustCompile(`(^|[^\w@])@([A-Za-z](?:[\w.\-]*\w)?)`)
 
 // resolveMentions rewrites recognized @handle tokens in message text into
 // real Slack mentions — <@USER_ID> for a person, or <!here>/<!channel>/
@@ -295,6 +313,9 @@ var mentionPattern = regexp.MustCompile(`(^|[^\w@])@([A-Za-z][\w.\-]*)`)
 // exact handle, and a message with several @-looking tokens shouldn't
 // trigger several live lookups.
 func resolveMentions(client *slack.Client, wsName, text string) string {
+	if !mentionPattern.MatchString(text) {
+		return text
+	}
 	users, _ := getAllUsers(client, wsName)
 	return mentionPattern.ReplaceAllStringFunc(text, func(match string) string {
 		sub := mentionPattern.FindStringSubmatch(match)
@@ -392,7 +413,14 @@ func lookupJiraUsername(name string) (string, bool) {
 			len(matches), name, name)
 		return "", false
 	}
-	return matches[0].Name, true
+	// The user picker is a fuzzy prefix search, so a single result can still
+	// be someone else entirely (a typo'd "bob" returning "bobby.khan"). Only
+	// accept it when it is exactly the person asked for.
+	m := matches[0]
+	if !strings.EqualFold(m.Name, name) && !strings.EqualFold(m.DisplayName, name) {
+		return "", false
+	}
+	return m.Name, true
 }
 
 // isEmail reports whether token looks like an email address (and not an

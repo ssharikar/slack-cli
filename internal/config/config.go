@@ -179,6 +179,12 @@ func LoadJira() (*JiraConfig, error) {
 func SaveJira(jira *JiraConfig) error {
 	cfg, err := LoadFull()
 	if err != nil {
+		// Only start fresh when there is no config file at all. Any other
+		// error (e.g. a file that fails to parse) must not be papered over,
+		// or saving would overwrite every stored workspace credential.
+		if _, statErr := os.Stat(configPath()); !os.IsNotExist(statErr) {
+			return err
+		}
 		cfg = &Config{Workspaces: make(map[string]*Workspace)}
 	}
 	cfg.Jira = jira

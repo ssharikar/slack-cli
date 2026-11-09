@@ -46,10 +46,10 @@ var messagesReadCmd = &cobra.Command{
 			return fmt.Errorf("failed to get messages: %w", err)
 		}
 
-		// Resolve display names from the cached workspace directory (one fetch,
-		// usually served from cache) instead of a live users.info call per
-		// message author — that used to make reading a busy channel very slow.
-		userByID := cachedUserByID(client, wsName)
+		// Resolve display names from the cached workspace directory instead of a
+		// live users.info call per message author — that used to make reading a
+		// busy channel very slow. Authors missing from it are looked up singly.
+		userByID := cachedUserByID(wsName)
 
 		// Print messages in chronological order (oldest first)
 		for i := len(history.Messages) - 1; i >= 0; i-- {
@@ -88,7 +88,7 @@ var messagesThreadCmd = &cobra.Command{
 
 		// Same cached-directory lookup as `messages read` — a thread with many
 		// distinct participants shouldn't cost a live users.info call each.
-		userByID := cachedUserByID(client, wsName)
+		userByID := cachedUserByID(wsName)
 
 		for _, msg := range replies {
 			prefix := "  ↳ " // reply
@@ -191,10 +191,9 @@ var messagesDownloadCmd = &cobra.Command{
 			if name == "" || name == "." || name == "/" {
 				name = f.ID
 			}
-			path := filepath.Join(downloadOutDir, name)
-			out, err := os.Create(path)
+			path, out, err := createUnique(filepath.Join(downloadOutDir, name))
 			if err != nil {
-				return fmt.Errorf("failed to create %q: %w", path, err)
+				return err
 			}
 			err = client.GetFile(downloadURL, out)
 			out.Close()
@@ -206,6 +205,26 @@ var messagesDownloadCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// createUnique creates path for writing without clobbering anything already
+// there: if the name is taken (an existing local file, or an earlier
+// attachment with the same name such as two pasted "image.png"s), it tries
+// "name (1).ext", "name (2).ext", and so on.
+func createUnique(path string) (string, *os.File, error) {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	candidate := path
+	for i := 1; ; i++ {
+		out, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			return candidate, out, nil
+		}
+		if !os.IsExist(err) {
+			return "", nil, fmt.Errorf("failed to create %q: %w", candidate, err)
+		}
+		candidate = fmt.Sprintf("%s (%d)%s", base, i, ext)
+	}
 }
 
 // findMessage locates a single message by its exact ts, trying channel
@@ -273,6 +292,11 @@ func resolveTarget(client *slack.Client, wsName, target string) (string, error) 
 // openDM opens (or reuses) a direct-message conversation with the given user IDs
 // and returns its channel ID. One ID yields a 1:1 DM; several yield a group DM.
 func openDM(client *slack.Client, userIDs ...string) (string, error) {
+	// conversations.open creates the DM in Slack (it shows up in the sidebar),
+	// so a dry run must stop short of it.
+	if sendDryRun {
+		return "(DM with " + strings.Join(userIDs, ",") + ", not opened in dry run)", nil
+	}
 	ch, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
 		Users: userIDs,
 	})

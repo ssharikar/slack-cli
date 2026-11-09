@@ -82,7 +82,9 @@ var channelsFavoritesCmd = &cobra.Command{
 			}
 		}
 		if len(starredIDs) == 0 {
-			fmt.Println("No starred channels. Star one from Slack's sidebar first.")
+			// stars.list only reports legacy stars; channels in the newer
+			// sidebar "Starred" section may not show up here.
+			fmt.Println("No starred channels found. Note: Slack's stars API only reports legacy stars, so channels in the sidebar's \"Starred\" section may not appear.")
 			return nil
 		}
 
@@ -192,7 +194,7 @@ func filterByCreator(channels []slack.Channel, userID string) []slack.Channel {
 
 func printChannels(channels []slack.Channel) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tTOPIC\tPRIVATE")
+	fmt.Fprintln(w, "NAME\tMEMBERS\tTOPIC\tPRIVATE")
 	for _, ch := range channels {
 		private := ""
 		if ch.IsPrivate {
@@ -202,7 +204,7 @@ func printChannels(channels []slack.Channel) {
 		if len(topic) > 50 {
 			topic = topic[:50] + "..."
 		}
-		fmt.Fprintf(w, "#%s\t%s\t%s\n", ch.Name, topic, private)
+		fmt.Fprintf(w, "#%s\t%d\t%s\t%s\n", ch.Name, ch.NumMembers, topic, private)
 	}
 	w.Flush()
 }
